@@ -26,10 +26,11 @@ export const ParticipantVideoCard = memo(function ParticipantVideoCard({
   const remoteStream = useMediaStore((s) => s.remoteStreams[participant.userId]);
   const stream =
     participant.userId === myId ? localStream : remoteStream ?? null;
+  const videoTrack = stream?.getVideoTracks().find(
+    (track) => track.readyState === "live"
+  );
   const showVideo = Boolean(
-    stream?.getVideoTracks().some(
-      (track) => track.readyState === "live" && track.enabled
-    )
+    videoTrack && (participant.userId !== myId || videoTrack.enabled)
   );
   const isMe = participant.userId === myId;
 
@@ -39,15 +40,15 @@ export const ParticipantVideoCard = memo(function ParticipantVideoCard({
     el.srcObject = stream;
     el.muted = isMe;
     if (stream) void el.play().catch(() => undefined);
-  }, [stream, isMe]);
+  }, [stream, isMe, showVideo]);
 
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border border-white/10 bg-[#0a1220]",
+        "relative min-w-0 w-full overflow-hidden rounded-xl border border-white/10 bg-[#0a1220]",
         participant.isSpeaking && "ring-2 ring-[var(--accent)]",
         participant.lastBidAmount && "ring-2 ring-[var(--warning)]",
-        large ? "aspect-video min-h-[160px]" : "aspect-[4/3] min-w-[140px]",
+        large ? "aspect-video" : "aspect-[4/3]",
         className
       )}
     >

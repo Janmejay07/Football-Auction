@@ -166,10 +166,11 @@ export default function AuctionLobbyPage() {
               {participants.length} / {auction.teamCount} joined · {participants.filter((p) => p.teamId).length} teams claimed
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
             {participants.map((p, i) => (
               <motion.div
                 key={p.id}
+                className="min-w-0"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}

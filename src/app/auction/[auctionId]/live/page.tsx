@@ -227,9 +227,9 @@ export default function LiveAuctionPage() {
             </span>
           </div>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-2">
           {participants.map((p) => (
-            <div key={p.id} className="w-[150px] shrink-0">
+            <div key={p.id} className="min-w-0">
               <ParticipantVideoCard participant={p} />
             </div>
           ))}

@@ -478,5 +478,5 @@ export function useRoomMedia(auctionId: string) {
     stream.getVideoTracks().forEach((t) => {
       t.enabled = Boolean(me.isCameraOn);
     });
-  }, [me?.isMicOn, me?.isCameraOn]);
+  }, [mediaReady, me?.isMicOn, me?.isCameraOn]);
 }
