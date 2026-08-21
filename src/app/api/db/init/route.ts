@@ -31,7 +31,7 @@ export async function GET() {
     return NextResponse.json(
       {
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to initialize database",
+        message: "Database connection failed. Check the production MongoDB configuration.",
       },
       { status: 500 }
     );
