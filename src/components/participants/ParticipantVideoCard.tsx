@@ -26,7 +26,11 @@ export const ParticipantVideoCard = memo(function ParticipantVideoCard({
   const remoteStream = useMediaStore((s) => s.remoteStreams[participant.userId]);
   const stream =
     participant.userId === myId ? localStream : remoteStream ?? null;
-  const showVideo = Boolean(stream && participant.isCameraOn);
+  const showVideo = Boolean(
+    stream?.getVideoTracks().some(
+      (track) => track.readyState === "live" && track.enabled
+    )
+  );
   const isMe = participant.userId === myId;
 
   useEffect(() => {

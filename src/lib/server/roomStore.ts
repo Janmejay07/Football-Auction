@@ -240,6 +240,8 @@ function settleCurrentLot(
       teamId: bidder.teamId,
     };
     room.live.overlayAt = Date.now();
+    room.live.timeRemaining = 0;
+    room.live.timerEpoch = Date.now();
     room.history = [
       {
         playerId,
@@ -268,6 +270,8 @@ function settleCurrentLot(
     ]);
     room.live.overlay = { type: "unsold", playerId };
     room.live.overlayAt = Date.now();
+    room.live.timeRemaining = 0;
+    room.live.timerEpoch = Date.now();
     room.history = [
       {
         playerId,
@@ -1040,8 +1044,10 @@ export const roomStore = {
       if (room.auction.status !== "live") {
         throw new Error("Auction is not live");
       }
-      progressLive(room);
-      settleCurrentLot(room, mode);
+      if (room.live.overlay.type === "none") {
+        if (mode === "auto") progressLive(room);
+        else settleCurrentLot(room, mode);
+      }
       return snapshot(room);
     });
   },

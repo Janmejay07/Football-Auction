@@ -216,7 +216,7 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       currentPlayer: player,
       currentBid: live.currentBid,
       highestBidder: live.highestBidder,
-      timeRemaining: live.timeRemaining,
+      timeRemaining: live.overlay.type === "none" ? live.timeRemaining : 0,
       bidHistory: snap.bids.filter((b) => b.playerId === live.currentPlayerId),
       history: snap.history ?? [],
       soldPlayerIds: live.soldPlayerIds ?? [],

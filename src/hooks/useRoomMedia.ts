@@ -67,6 +67,7 @@ export function useRoomMedia(auctionId: string) {
   const makingOfferRef = useRef(new Set<string>());
   const iceBufferRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const iceFlushRef = useRef(new Map<string, number>());
+  const remoteStreamsRef = useRef(new Map<string, MediaStream>());
   const streamRef = useRef<MediaStream | null>(null);
   const userIdRef = useRef(userId);
   const auctionIdRef = useRef(auctionId);
@@ -135,6 +136,8 @@ export function useRoomMedia(auctionId: string) {
     }
     makingOfferRef.current.delete(peerId);
     pendingIceRef.current.delete(peerId);
+    remoteStreamsRef.current.delete(peerId);
+    setRemoteStream(peerId, null);
     flushIceBuffer(peerId);
   };
 
@@ -171,7 +174,14 @@ export function useRoomMedia(auctionId: string) {
     };
 
     pc.ontrack = (ev) => {
-      const stream = ev.streams[0] ?? new MediaStream([ev.track]);
+      const stream =
+        remoteStreamsRef.current.get(peerId) ??
+        ev.streams[0] ??
+        new MediaStream();
+      if (!stream.getTracks().some((track) => track.id === ev.track.id)) {
+        stream.addTrack(ev.track);
+      }
+      remoteStreamsRef.current.set(peerId, stream);
       setRemoteStream(peerId, stream);
     };
 
@@ -364,6 +374,7 @@ export function useRoomMedia(auctionId: string) {
       clearRemotes();
       for (const peerId of [...peersRef.current.keys()]) dropPeer(peerId);
       pendingIceRef.current.clear();
+      remoteStreamsRef.current.clear();
       pendingSignalsRef.current = [];
       makingOfferRef.current.clear();
       setMediaReady(false);
