@@ -1,26 +1,148 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Stadium night palette */
+  --background: #05070b;
+  --foreground: #f2f5f8;
+  --card: rgba(12, 18, 28, 0.72);
+  --card-solid: #0c121c;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --muted: #8b98a8;
+  --muted-foreground: #6b7a8c;
+  --accent: #c8f560;
+  --accent-foreground: #0a1408;
+  --accent-dim: rgba(200, 245, 96, 0.15);
+  --primary: #c8f560;
+  --primary-foreground: #0a1408;
+  --secondary: #152033;
+  --secondary-foreground: #e8eef6;
+  --destructive: #ff4d6a;
+  --warning: #ffb020;
+  --success: #3ddc97;
+  --live: #ff3b5c;
+  --pitch: #1a6b3c;
+  --navy: #0a1628;
+  --glass: rgba(10, 16, 28, 0.65);
+  --ring: #c8f560;
+  --radius: 0.75rem;
+  --font-display: "Bebas Neue", "Oswald", "Montserrat", Impact, -apple-system, sans-serif;
+  --font-sans: "DM Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card-solid);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-primary: var(--primary);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-live: var(--live);
+  --color-pitch: var(--pitch);
+  --color-navy: var(--navy);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --radius-lg: var(--radius);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--card-border);
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), Impact, sans-serif;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.glass-panel {
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+}
+
+.stadium-bg {
+  background-color: #05070b;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(26, 107, 60, 0.35), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(10, 40, 80, 0.4), transparent),
+    linear-gradient(180deg, #05070b 0%, #0a1628 50%, #05070b 100%);
+}
+
+.pitch-pattern {
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 48px,
+      rgba(255, 255, 255, 0.03) 48px,
+      rgba(255, 255, 255, 0.03) 50px
+    ),
+    linear-gradient(180deg, #14532d 0%, #166534 50%, #14532d 100%);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+}
+
+.live-pulse {
+  animation: live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 59, 92, 0.5);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(255, 59, 92, 0);
+  }
+}
+
+.timer-danger {
+  animation: timer-pulse 0.6s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
 }
