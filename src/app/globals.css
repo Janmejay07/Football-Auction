@@ -81,6 +81,21 @@ h3,
   outline-offset: 2px;
 }
 
+.player-filter-select {
+  color-scheme: dark;
+  color: var(--foreground);
+}
+
+.player-filter-select option {
+  background: var(--card-solid);
+  color: var(--foreground);
+}
+
+.player-filter-select option:checked {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .glass-panel {
   background: var(--glass);
   backdrop-filter: blur(16px);

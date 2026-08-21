@@ -81,7 +81,7 @@ export default function PlayerDatabasePage() {
             <select
               value={bucket}
               onChange={(e) => setBucket(e.target.value)}
-              className="h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              className="player-filter-select h-11 rounded-xl border border-white/15 bg-[#111c2d] px-3 text-xs font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               aria-label="Filter by bucket"
             >
               <option value="all">All Buckets</option>
@@ -95,7 +95,7 @@ export default function PlayerDatabasePage() {
             <select
               value={position}
               onChange={(e) => setPosition(e.target.value)}
-              className="h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              className="player-filter-select h-11 rounded-xl border border-white/15 bg-[#111c2d] px-3 text-xs font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               aria-label="Filter by position"
             >
               <option value="all">All Positions</option>
@@ -109,7 +109,7 @@ export default function PlayerDatabasePage() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+              className="player-filter-select h-11 rounded-xl border border-white/15 bg-[#111c2d] px-3 text-xs font-semibold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               aria-label="Sort by"
             >
               <option value="rating">Sort: Highest Rating</option>
