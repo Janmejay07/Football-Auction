@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -132,6 +132,20 @@ export default function CreateAuctionPage() {
 
   const [rules, setRules] = useState<AuctionRules>({ ...DEFAULT_RULES });
   const lanOrigin = useLanOrigin();
+
+  useEffect(() => {
+    if (step !== 6 || !created?.id || !user?.id) return;
+
+    const beat = () => {
+      void auctionService
+        .postAction(created.id, { action: "presence", userId: user.id })
+        .catch(() => undefined);
+    };
+
+    beat();
+    const heartbeatId = window.setInterval(beat, 4_000);
+    return () => window.clearInterval(heartbeatId);
+  }, [created?.id, step, user?.id]);
 
   const startingBudget =
     budgetPreset === "custom" ? Math.max(1, customBudget || 0) : budgetPreset;
