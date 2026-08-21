@@ -8,6 +8,7 @@ import { REAL_PLAYERS } from "@/lib/loadRealPlayers";
 import { bidService } from "@/lib/services/bidService";
 import { auctionService } from "@/lib/services/auctionService";
 import { useTeamStore } from "@/store/teamStore";
+import { playAuctionSound } from "@/hooks/useSound";
 import type { LiveSyncState, RoomSnapshot } from "@/types/room";
 
 type OverlayState =
@@ -62,10 +63,12 @@ interface AuctionState {
   bidHistory: Bid[];
   history: AuctionHistoryItem[];
   overlay: OverlayState;
+  overlayAt: number;
   isPaused: boolean;
   simulationActive: boolean;
   soldPlayerIds: string[];
   unsoldPlayerIds: string[];
+  syncRev: number;
 
   initAuction: (auction?: Auction) => void;
   applySnapshot: (snap: RoomSnapshot) => void;
@@ -75,6 +78,7 @@ interface AuctionState {
   resumeAuction: (byName?: string) => void;
   cancelAuction: (byName?: string) => void;
   tick: () => void;
+  ensureProgress: () => Promise<void>;
   placeBid: (teamId: string, teamName: string, userId?: string) => Promise<boolean>;
   simulateRivalBid: () => void;
   sellPlayer: () => void;
@@ -128,10 +132,12 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
   bidHistory: [],
   history: [],
   overlay: { type: "none" },
+  overlayAt: 0,
   isPaused: false,
   simulationActive: false,
   soldPlayerIds: [],
   unsoldPlayerIds: [],
+  syncRev: 0,
 
   initAuction: (auction) => {
     if (!auction) return;
@@ -148,14 +154,19 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       timeRemaining: a.rules.biddingTimer,
       bidHistory: [],
       overlay: { type: "none" },
+      overlayAt: 0,
       isPaused: false,
       simulationActive: false,
       soldPlayerIds: [],
       unsoldPlayerIds: [],
+      syncRev: 0,
     });
   },
 
   applySnapshot: (snap) => {
+    if (typeof snap.rev === "number" && snap.rev < get().syncRev) return;
+
+    const prevState = get();
     const live = snap.live;
     const player = live.currentPlayerId
       ? REAL_PLAYERS.find((p) => p.id === live.currentPlayerId) ?? null
@@ -173,6 +184,30 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       overlay = { type: "bucket", from: liveOverlay.from, to: liveOverlay.to };
     }
 
+    // Audio cue triggers based on state transitions
+    if (overlay.type === "sold" && prevState.overlay.type !== "sold") {
+      playAuctionSound("sold");
+    } else if (overlay.type === "unsold" && prevState.overlay.type !== "unsold") {
+      playAuctionSound("unsold");
+    } else if (
+      player &&
+      prevState.currentPlayer &&
+      player.id !== prevState.currentPlayer.id &&
+      overlay.type === "none" &&
+      snap.auction.status === "live"
+    ) {
+      playAuctionSound("start");
+    } else if (
+      prevState.highestBidder &&
+      live.highestBidder &&
+      prevState.highestBidder.teamId !== live.highestBidder.teamId
+    ) {
+      const myTeamId = useTeamStore.getState().myTeamId;
+      if (myTeamId && prevState.highestBidder.teamId === myTeamId && live.highestBidder.teamId !== myTeamId) {
+        playAuctionSound("outbid");
+      }
+    }
+
     set({
       auction: snap.auction,
       auctionStatus: snap.auction.status,
@@ -183,13 +218,17 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       highestBidder: live.highestBidder,
       timeRemaining: live.timeRemaining,
       bidHistory: snap.bids.filter((b) => b.playerId === live.currentPlayerId),
-      soldPlayerIds: live.soldPlayerIds,
-      unsoldPlayerIds: live.unsoldPlayerIds,
+      history: snap.history ?? [],
+      soldPlayerIds: live.soldPlayerIds ?? [],
+      unsoldPlayerIds: live.unsoldPlayerIds ?? [],
       isPaused: live.isPaused,
       overlay,
+      overlayAt: live.overlayAt ?? 0,
+      syncRev: typeof snap.rev === "number" ? snap.rev : get().syncRev,
       simulationActive:
         snap.auction.status === "live" && !live.isPaused && live.overlay.type === "none",
     });
+    useTeamStore.getState().setTeams(snap.teams);
   },
 
   publishLive: async () => {
@@ -310,20 +349,18 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const state = get();
     if (!state.simulationActive || state.isPaused || state.auctionStatus !== "live") return;
     if (state.overlay.type !== "none") return;
-
-    if (state.timeRemaining <= 1) {
-      if (state.highestBidder) {
-        get().sellPlayer();
-      } else {
-        get().markUnsold();
-      }
-      return;
-    }
-
+    if (state.timeRemaining <= 0) return;
     set({ timeRemaining: state.timeRemaining - 1 });
+  },
 
-    if (get().timeRemaining % 2 === 0) {
-      void get().publishLive();
+  ensureProgress: async () => {
+    const state = get();
+    if (!state.auction.id.startsWith("auc-")) return;
+    try {
+      const snap = await auctionService.getAuction(state.auction.id);
+      get().applySnapshot(snap);
+    } catch {
+      /* ignore */
     }
   },
 
@@ -357,6 +394,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     });
 
     if (!result.success || !result.bid) return false;
+
+    if (result.snapshot) {
+      get().applySnapshot(result.snapshot);
+      return true;
+    }
 
     const confirmedAmount = result.bid.amount;
 
@@ -415,112 +457,40 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
 
   sellPlayer: () => {
     const state = get();
-    if (!state.currentPlayer || !state.highestBidder) {
-      get().markUnsold();
-      return;
-    }
-
-    const player = state.currentPlayer;
-    const price = state.currentBid;
-    const { teamId, teamName } = state.highestBidder;
-
-    useTeamStore.getState().updateTeamSpend(teamId, price, player.id);
-
-    set((s) => ({
-      simulationActive: false,
-      overlay: { type: "sold", player, price, teamName },
-      soldPlayerIds: [...s.soldPlayerIds, player.id],
-      history: [
-        {
-          playerId: player.id,
-          playerName: player.name,
-          status: "sold",
-          winnerTeamId: teamId,
-          winnerTeamName: teamName,
-          price,
-          timestamp: new Date().toISOString(),
-        },
-        ...s.history,
-      ],
-      participants: s.participants.map((p) => ({ ...p, lastBidAmount: undefined })),
-    }));
-
-    void auctionService.postAction(state.auction.id, {
-      action: "spend",
-      teamId,
-      amount: price,
-      playerId: player.id,
-    }).catch(() => undefined);
-    void get().publishLive();
+    if (!state.auction.id.startsWith("auc-")) return;
+    void auctionService
+      .postAction(state.auction.id, { action: "settle", mode: "sold" })
+      .then((snap) => get().applySnapshot(snap))
+      .catch(() => undefined);
   },
 
   markUnsold: () => {
     const state = get();
-    if (!state.currentPlayer) return;
-    const player = state.currentPlayer;
-
-    set((s) => ({
-      simulationActive: false,
-      overlay: { type: "unsold", player },
-      unsoldPlayerIds: [...s.unsoldPlayerIds, player.id],
-      history: [
-        {
-          playerId: player.id,
-          playerName: player.name,
-          status: "unsold",
-          timestamp: new Date().toISOString(),
-        },
-        ...s.history,
-      ],
-    }));
-    void get().publishLive();
+    if (!state.auction.id.startsWith("auc-")) return;
+    void auctionService
+      .postAction(state.auction.id, { action: "settle", mode: "unsold" })
+      .then((snap) => get().applySnapshot(snap))
+      .catch(() => undefined);
   },
 
   nextPlayer: () => {
     const state = get();
-    const buckets = getEnabledBuckets(state.auction);
-    const bucket = buckets[state.currentBucketIndex];
-    if (!bucket) {
-      set({ auctionStatus: "completed", simulationActive: false });
-      return;
-    }
-
-    const remaining = bucket.playerIds.filter(
-      (id) =>
-        !state.soldPlayerIds.includes(id) &&
-        !state.unsoldPlayerIds.includes(id) &&
-        id !== state.currentPlayer?.id
-    );
-
-    // After sell/unsold, current player is already in sold/unsold lists
-    const remainingAfter = bucket.playerIds.filter(
-      (id) => !get().soldPlayerIds.includes(id) && !get().unsoldPlayerIds.includes(id)
-    );
-
-    if (remainingAfter.length === 0) {
-      get().nextBucket();
-      return;
-    }
-
-    const nextId = remainingAfter[0];
-    const player = REAL_PLAYERS.find((p) => p.id === nextId) ?? null;
-
-    set({
-      currentPlayer: player,
-      currentPlayerIndex: 0,
-      currentBid: player?.basePrice ?? state.auction.rules.baseBid,
-      highestBidder: null,
-      bidHistory: [],
-      timeRemaining: state.auction.rules.biddingTimer,
-      simulationActive: true,
-      overlay: { type: "none" },
-      auction: {
-        ...state.auction,
-        playersRemaining: Math.max(0, state.auction.playersRemaining - 1),
-      },
-    });
-    void remaining;
-    void get().publishLive();
+    if (!state.auction.id.startsWith("auc-")) return;
+    const run = async () => {
+      if (state.overlay.type !== "none") {
+        const snap = await auctionService.postAction(state.auction.id, {
+          action: "advance",
+        });
+        get().applySnapshot(snap);
+      } else {
+        const snap = await auctionService.postAction(state.auction.id, {
+          action: "settle",
+          mode: "auto",
+        });
+        get().applySnapshot(snap);
+      }
+    };
+    void run().catch(() => undefined);
   },
 
   previousPlayer: () => {
@@ -529,68 +499,15 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
 
   nextBucket: () => {
     const state = get();
-    const buckets = getEnabledBuckets(state.auction);
-    const nextIndex = state.currentBucketIndex + 1;
-
-    if (nextIndex >= buckets.length) {
-      set({
-        auctionStatus: "completed",
-        simulationActive: false,
-        overlay: { type: "none" },
-        auction: { ...state.auction, status: "completed", completedAt: new Date().toISOString() },
-      });
-      void auctionService.postAction(state.auction.id, { action: "status", status: "completed" }).catch(() => undefined);
-      return;
-    }
-
-    const from = buckets[state.currentBucketIndex]?.name ?? "";
-    const to = buckets[nextIndex]?.name ?? "";
-    const sold = get().soldPlayerIds;
-    const unsold = get().unsoldPlayerIds;
-    const player = resolvePlayer(state.auction, nextIndex, 0, sold, unsold);
-
-    set({
-      overlay: { type: "bucket", from, to },
-      simulationActive: false,
-    });
-
-    setTimeout(() => {
-      set({
-        currentBucketIndex: nextIndex,
-        currentPlayerIndex: 0,
-        currentPlayer: player,
-        currentBid: player?.basePrice ?? state.auction.rules.baseBid,
-        highestBidder: null,
-        bidHistory: [],
-        timeRemaining: state.auction.rules.biddingTimer,
-        overlay: { type: "none" },
-        simulationActive: !!player,
-        auctionStatus: player ? "live" : "completed",
-      });
-      void get().publishLive();
-    }, 2200);
-    void get().publishLive();
+    if (!state.auction.id.startsWith("auc-")) return;
+    void auctionService
+      .postAction(state.auction.id, { action: "advance" })
+      .then((snap) => get().applySnapshot(snap))
+      .catch(() => undefined);
   },
 
   previousBucket: () => {
-    const state = get();
-    if (state.currentBucketIndex <= 0) return;
-    const prev = state.currentBucketIndex - 1;
-    const player = resolvePlayer(
-      state.auction,
-      prev,
-      0,
-      state.soldPlayerIds,
-      state.unsoldPlayerIds
-    );
-    set({
-      currentBucketIndex: prev,
-      currentPlayer: player,
-      currentBid: player?.basePrice ?? state.auction.rules.baseBid,
-      highestBidder: null,
-      bidHistory: [],
-      timeRemaining: state.auction.rules.biddingTimer,
-    });
+    // Lot order is server-owned; going back would desync other managers.
   },
 
   toggleMic: (participantId) => {

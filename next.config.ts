@@ -7,9 +7,31 @@ const lanHosts = Object.values(networkInterfaces())
   .filter((addr) => !addr.internal)
   .map((addr) => addr.address);
 
+function publicHost() {
+  const value = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!value) return [];
+  try {
+    return [new URL(value).hostname];
+  } catch {
+    return [];
+  }
+}
+
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  allowedDevOrigins: ["127.0.0.1", "localhost", ...lanHosts],
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
+    ...lanHosts,
+    ...publicHost(),
+    "*.trycloudflare.com",
+    "trycloudflare.com",
+    "*.ngrok-free.app",
+    "*.ngrok.io",
+    "*.ngrok.app",
+    "*.loca.lt",
+    "*.pinggy.io",
+  ],
   images: {
     remotePatterns: [
       {

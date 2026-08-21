@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LivePlayerCard } from "@/components/auction/LivePlayerCard";
 import { AuctionTimer } from "@/components/auction/AuctionTimer";
+import { AuctionTicker, CountdownSoundWatcher } from "@/hooks/useAuctionTimer";
 import { BidHistory } from "@/components/auction/BidHistory";
 import { BidButton } from "@/components/auction/BidButton";
 import { PlayerBucketSidebar } from "@/components/auction/PlayerBucketSidebar";
@@ -39,7 +40,6 @@ import { useTeamStore } from "@/store/teamStore";
 import { useAuthStore } from "@/store/authStore";
 import { auctionService } from "@/lib/services/auctionService";
 import { useUiStore } from "@/store/uiStore";
-import { useAuctionTimer } from "@/hooks/useAuctionTimer";
 import { formatCurrency } from "@/lib/utils";
 import type { Player } from "@/types/player";
 
@@ -47,7 +47,7 @@ export default function LiveAuctionPage() {
   const params = useParams<{ auctionId: string }>();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const myTeam = useTeamStore((s) => s.getMyTeam());
+  const myTeam = useTeamStore((s) => s.teams.find((t) => t.id === s.myTeamId) ?? null);
   const {
     auction,
     auctionStatus,
@@ -61,12 +61,8 @@ export default function LiveAuctionPage() {
     getEnabledBuckets,
     getQueue,
     nextPlayer,
-    clearOverlay,
     toggleMic,
     toggleCamera,
-    sellPlayer,
-    markUnsold,
-    highestBidder,
     isPaused,
     pauseAuction,
     resumeAuction,
@@ -91,8 +87,6 @@ export default function LiveAuctionPage() {
   const queue = getQueue();
   const bucket = buckets[currentBucketIndex];
 
-  useAuctionTimer(isHost && auctionStatus === "live" && overlay.type === "none");
-
   const onLeave = async () => {
     if (!user) return;
     const confirmed = window.confirm(
@@ -112,34 +106,6 @@ export default function LiveAuctionPage() {
       toast.error(e instanceof Error ? e.message : "Could not leave auction");
     }
   };
-
-  useEffect(() => {
-    if (!isHost) return;
-    if (auctionStatus !== "live" || isPaused) return;
-    if (overlay.type !== "none") return;
-    if (timeRemaining > 0) return;
-    if (highestBidder) sellPlayer();
-    else markUnsold();
-  }, [
-    isHost,
-    auctionStatus,
-    isPaused,
-    overlay.type,
-    timeRemaining,
-    highestBidder,
-    sellPlayer,
-    markUnsold,
-  ]);
-
-  useEffect(() => {
-    if (!isHost) return;
-    if (overlay.type !== "sold" && overlay.type !== "unsold") return;
-    const t = window.setTimeout(() => {
-      clearOverlay();
-      nextPlayer();
-    }, 2800);
-    return () => window.clearTimeout(t);
-  }, [isHost, overlay.type, clearOverlay, nextPlayer]);
 
   useEffect(() => {
     if (bidHistory.length === 0) return;
@@ -172,7 +138,7 @@ export default function LiveAuctionPage() {
           !useAuctionStore.getState().unsoldPlayerIds.includes(id)
       ).length;
     return `${done} / ${total} players`;
-  }, [bucket, currentPlayer?.id]);
+  }, [bucket]);
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-40px)] max-w-[1600px] flex-col gap-3 px-3 py-3 pb-28 lg:px-5">
@@ -382,19 +348,20 @@ export default function LiveAuctionPage() {
         </Button>
       </div>
 
+      <AuctionTicker />
+      <CountdownSoundWatcher />
+
       <SoldOverlay
         open={overlay.type === "sold"}
         player={overlay.type === "sold" ? overlay.player : undefined}
         price={overlay.type === "sold" ? overlay.price : undefined}
         teamName={overlay.type === "sold" ? overlay.teamName : undefined}
+        onContinue={() => nextPlayer()}
       />
       <UnsoldOverlay
         open={overlay.type === "unsold"}
         player={overlay.type === "unsold" ? overlay.player : undefined}
-        onContinue={() => {
-          clearOverlay();
-          nextPlayer();
-        }}
+        onContinue={() => nextPlayer()}
       />
       <BucketTransitionOverlay
         open={overlay.type === "bucket"}

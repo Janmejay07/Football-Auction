@@ -12,11 +12,13 @@ export function SoldOverlay({
   player,
   price,
   teamName,
+  onContinue,
 }: {
   open: boolean;
   player?: Player;
   price?: number;
   teamName?: string;
+  onContinue?: () => void;
 }) {
   return (
     <AnimatePresence>
@@ -50,9 +52,14 @@ export function SoldOverlay({
             <p className="mt-1 text-lg uppercase tracking-widest text-[var(--muted)]">
               {teamName}
             </p>
-            <p className="mt-4 text-sm text-[var(--success)]">
-              Added to {teamName} Squad
+            <p className="mt-4 text-sm font-semibold text-[var(--success)]">
+              ✓ Added to {teamName} Squad
             </p>
+            {onContinue && (
+              <Button className="mt-6" onClick={onContinue}>
+                Next Player →
+              </Button>
+            )}
           </motion.div>
         </motion.div>
       )}

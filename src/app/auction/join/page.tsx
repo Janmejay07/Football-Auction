@@ -141,8 +141,9 @@ export default function JoinAuctionPage() {
             <p className="font-semibold text-[var(--destructive)]">Unable to join auction</p>
             <p className="mt-1 text-[var(--muted)]">{error}</p>
             <p className="mt-2 text-xs text-[var(--muted)]">
-              Friends must open the host&apos;s invite link (LAN IP, not localhost)
-              while this app is running on the host computer.
+              Open the host&apos;s invite link (not localhost). If you are on a
+              different network, the host must run <code>npm run dev:public</code>{" "}
+              or deploy the app, then share that public link.
             </p>
             <Button variant="secondary" size="sm" className="mt-3" onClick={() => void lookup()}>
               Try Again

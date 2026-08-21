@@ -12,7 +12,9 @@ import { useAuthStore } from "@/store/authStore";
 export const BidButton = memo(function BidButton() {
   const user = useAuthStore((s) => s.user);
   const myTeamId = useTeamStore((s) => s.myTeamId);
-  const myTeam = useTeamStore((s) => s.getMyTeam());
+  const myTeam = useTeamStore(
+    (s) => s.teams.find((t) => t.id === s.myTeamId) ?? null
+  );
   const {
     currentBid,
     highestBidder,
@@ -20,6 +22,7 @@ export const BidButton = memo(function BidButton() {
     auctionStatus,
     placeBid,
     isPaused,
+    overlay,
   } = useAuctionStore();
 
   const nextBid =
@@ -29,18 +32,29 @@ export const BidButton = memo(function BidButton() {
   const afterBid = remaining - nextBid;
   const isWinning = highestBidder?.teamId === myTeamId;
   const canAfford = remaining >= nextBid;
+  const isSquadFull = Boolean(
+    myTeam && myTeam.squad.length >= (myTeam.maxSquadSize || auction.rules.maxSquadSize || 18)
+  );
+
   const disabled =
     !canAfford ||
     isWinning ||
+    isSquadFull ||
     auctionStatus !== "live" ||
     isPaused ||
+    overlay.type !== "none" ||
     !myTeamId;
 
   const label = useMemo(() => {
+    if (!myTeamId) return "Join / Select a Team";
+    if (isSquadFull) return "Squad Full";
     if (isWinning) return "You Are Winning";
     if (!canAfford) return "Insufficient Budget";
+    if (overlay.type === "sold") return "Player Sold";
+    if (overlay.type === "unsold") return "Player Unsold";
+    if (overlay.type === "bucket") return "Next Bucket Loading...";
     return `Bid ${formatCurrency(nextBid)}`;
-  }, [isWinning, canAfford, nextBid]);
+  }, [myTeamId, isSquadFull, isWinning, canAfford, overlay.type, nextBid]);
 
   const onBid = async () => {
     if (!myTeam || !myTeamId) return;

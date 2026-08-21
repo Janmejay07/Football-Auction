@@ -37,7 +37,7 @@ export default function AuctionLobbyPage() {
     toggleCamera,
   } = useAuctionStore();
   const { chatDrawerOpen, setChatDrawerOpen } = useUiStore();
-  const lanOrigin = useLanOrigin();
+  const { origin: lanOrigin, reachableOffLan } = useLanOrigin();
   const inviteUrl = `${lanOrigin}/auction/join?code=${auction.roomCode}`;
 
   const me = participants.find((p) => p.userId === user?.id);
@@ -50,7 +50,13 @@ export default function AuctionLobbyPage() {
 
   const copyInvite = async () => {
     await navigator.clipboard.writeText(inviteUrl);
-    toast.success("Invite link copied — friends must use this URL");
+    if (reachableOffLan) {
+      toast.success("Invite link copied — friends must use this URL");
+    } else {
+      toast.error(
+        "Copied, but this is a local Wi‑Fi link. Stop the server and run npm run dev:public, then copy again for a friend on another network."
+      );
+    }
   };
 
   const onStart = async () => {
@@ -105,10 +111,34 @@ export default function AuctionLobbyPage() {
             <p className="mt-1 break-all text-xs text-[var(--muted)]">{inviteUrl}</p>
           )}
           <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-            Invite friends with this link (not localhost). They sign in with a
-            different email, join, then turn on camera and mic. Allow camera when
-            the browser asks.
+            Invite friends with this link. They sign in with a different email,
+            join, then turn on camera and mic.
+            {reachableOffLan ? (
+              <>
+                {" "}
+                This invite works on any network. Your friend must open this
+                exact https link (not a 192.168 address).
+              </>
+            ) : (
+              <>
+                {" "}
+                This link only works on the same Wi‑Fi. For a friend on another
+                network, stop the server and run{" "}
+                <code className="rounded bg-white/10 px-1">npm run dev:public</code>
+                , wait for the toast that the public URL is ready, then copy
+                Invite Link again.
+              </>
+            )}
           </p>
+          {reachableOffLan ? (
+            <Badge variant="success" className="mt-2">
+              Reachable off Wi‑Fi
+            </Badge>
+          ) : (
+            <Badge variant="warning" className="mt-2">
+              Same Wi‑Fi only — run npm run dev:public
+            </Badge>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void copyCode()}>

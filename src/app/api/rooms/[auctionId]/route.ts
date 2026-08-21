@@ -10,7 +10,7 @@ export async function GET(
   try {
     const { auctionId } = await context.params;
     const forUserId = new URL(request.url).searchParams.get("for") ?? undefined;
-    return NextResponse.json(await roomStore.get(auctionId, forUserId));
+    return NextResponse.json(await roomStore.get(auctionId, forUserId, false));
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Auction not found" },
@@ -88,7 +88,7 @@ export async function POST(
         return NextResponse.json({ ok: true });
       }
       case "bid": {
-        const bid = await roomStore.placeBid({
+        const { bid, snapshot } = await roomStore.placeBid({
           auctionId,
           playerId: String(body.playerId ?? ""),
           teamId: String(body.teamId ?? ""),
@@ -96,7 +96,17 @@ export async function POST(
           amount: Number(body.amount ?? 0),
           userId: body.userId ? String(body.userId) : undefined,
         });
-        return NextResponse.json({ success: true, bid });
+        return NextResponse.json({ success: true, bid, snapshot });
+      }
+      case "settle": {
+        const mode =
+          body.mode === "unsold" || body.mode === "sold" ? body.mode : "auto";
+        const room = await roomStore.settleLot(auctionId, mode);
+        return NextResponse.json(room);
+      }
+      case "advance": {
+        const room = await roomStore.forceAdvance(auctionId);
+        return NextResponse.json(room);
       }
       case "live": {
         const room = await roomStore.pushLive(

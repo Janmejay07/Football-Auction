@@ -1,5 +1,6 @@
 import { networkInterfaces } from "node:os";
 import { NextResponse } from "next/server";
+import { readPublicOrigin } from "@/lib/server/publicOrigin";
 
 export async function GET() {
   const addresses: string[] = [];
@@ -11,5 +12,6 @@ export async function GET() {
       }
     }
   }
-  return NextResponse.json({ addresses });
+  const publicOrigin = await readPublicOrigin();
+  return NextResponse.json({ addresses, publicOrigin });
 }

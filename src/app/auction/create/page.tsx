@@ -131,7 +131,7 @@ export default function CreateAuctionPage() {
   );
 
   const [rules, setRules] = useState<AuctionRules>({ ...DEFAULT_RULES });
-  const lanOrigin = useLanOrigin();
+  const { origin: lanOrigin, reachableOffLan } = useLanOrigin();
 
   useEffect(() => {
     if (step !== 6 || !created?.id || !user?.id) return;
@@ -858,10 +858,12 @@ export default function CreateAuctionPage() {
                   </Badge>
                 </div>
                 <p className="text-sm text-foreground">
-                  Share the invite link (not localhost) with your friends. They must
+                  Share the invite link with friends on any network. They must
                   sign in with a <span className="text-[var(--accent)]">different email</span>{" "}
-                  than yours, then join. Stay on the same Wi‑Fi. If the browser
-                  warns about the certificate, continue — camera and mic need HTTPS.
+                  than yours, then join.
+                  {reachableOffLan
+                    ? " Camera and mic need HTTPS — the public invite link already uses it. Share that link (not a 192.168 address)."
+                    : " This link only works on the same Wi‑Fi. Stop the server, run npm run dev:public, wait until the public URL toast appears, then copy Invite Link again."}
                 </p>
               </div>
 

@@ -22,35 +22,11 @@ export function subscribeSignals(handler: SignalHandler) {
 }
 
 function applySnapshot(snap: RoomSnapshot, userId?: string) {
-  const isHost = Boolean(userId && snap.auction.hostId === userId);
-  const live = snap.auction.status === "live" || snap.auction.status === "paused";
-
-  if (isHost && live) {
-    useAuctionStore.setState({
-      auction: snap.auction,
-      auctionStatus: snap.auction.status,
-      participants: snap.participants,
-      currentBid: snap.live.currentBid,
-      highestBidder: snap.live.highestBidder,
-      bidHistory: snap.bids.filter((b) => b.playerId === snap.live.currentPlayerId),
-      isPaused: snap.live.isPaused,
-      timeRemaining: snap.live.isPaused
-        ? snap.live.timeRemaining
-        : useAuctionStore.getState().timeRemaining,
-      simulationActive:
-        snap.auction.status === "live" &&
-        !snap.live.isPaused &&
-        snap.live.overlay.type === "none",
-    });
-  } else {
-    useAuctionStore.getState().applySnapshot(snap);
-  }
-
+  useAuctionStore.getState().applySnapshot(snap);
   useChatStore.getState().setMessages(snap.messages);
   const myTeam =
     snap.teams.find((t) => t.managerId === userId) ??
     snap.teams.find((t) => t.id === useTeamStore.getState().myTeamId);
-  useTeamStore.getState().setTeams(snap.teams);
   if (myTeam) useTeamStore.getState().setMyTeamId(myTeam.id);
 }
 
@@ -83,9 +59,6 @@ export function useRoomSync(auctionId: string) {
         const snap = await auctionService.getAuction(auctionId, userId);
         if (cancelled) return;
         applySnapshot(snap, userId);
-        if (snap.signals.length) {
-          signalListeners.forEach((fn) => fn(snap.signals));
-        }
         const onLobby = pathname?.includes("/lobby");
         if (snap.auction.status === "live" && onLobby) {
           router.push(`/auction/${auctionId}/live`);
@@ -96,11 +69,31 @@ export function useRoomSync(auctionId: string) {
     };
 
     void poll();
-    const id = window.setInterval(() => void poll(), 700);
+    const id = window.setInterval(() => void poll(), 1000);
+
+    const pullSignals = async () => {
+      if (!userId) return;
+      try {
+        const res = await fetch(
+          `/api/rooms/${auctionId}/signals?for=${encodeURIComponent(userId)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { signals?: RtcSignal[] };
+        if (cancelled || !data.signals?.length) return;
+        signalListeners.forEach((fn) => fn(data.signals ?? []));
+      } catch {
+        /* ignore */
+      }
+    };
+    void pullSignals();
+    const signalId = window.setInterval(() => void pullSignals(), 400);
+
     return () => {
       cancelled = true;
       window.clearInterval(id);
       window.clearInterval(beatId);
+      window.clearInterval(signalId);
     };
   }, [auctionId, userId, pathname, router]);
 }
