@@ -3,6 +3,7 @@ import type {
   AuctionConfig,
   AuctionHistoryItem,
   ChatMessage,
+  CancellationReason,
   Participant,
 } from "@/types/auction";
 import type { Bid } from "@/types/bid";
@@ -13,6 +14,7 @@ import { createAuctionTeams } from "@/lib/teamFactory";
 import { REAL_PLAYERS } from "@/lib/loadRealPlayers";
 import { getDb } from "@/lib/server/mongo";
 import { userStore } from "@/lib/server/userStore";
+import { publishRoomEvent } from "@/lib/server/roomEvents";
 
 const HOST_HEARTBEAT_EXPIRATION_MS = 90_000;
 const SOLD_OVERLAY_MS = 2800;
@@ -27,7 +29,11 @@ export interface RoomRecord {
   history: AuctionHistoryItem[];
   live: LiveSyncState;
   signals: RtcSignal[];
+  chatRev: number;
+  signalRev: number;
   lastSeen: Record<string, number>;
+  hostOfflineSince?: number;
+  processedCommands?: Record<string, { action: string; bidId?: string }>;
   rev: number;
 }
 
@@ -348,7 +354,11 @@ function fromDoc(doc: RoomDoc): RoomRecord {
       timerEpoch: doc.live?.timerEpoch ?? Date.now(),
     },
     signals: doc.signals ?? [],
+    chatRev: typeof doc.chatRev === "number" ? doc.chatRev : 0,
+    signalRev: typeof doc.signalRev === "number" ? doc.signalRev : 0,
     lastSeen: doc.lastSeen ?? {},
+    hostOfflineSince: doc.hostOfflineSince,
+    processedCommands: doc.processedCommands ?? {},
     rev: typeof doc.rev === "number" ? doc.rev : 0,
   };
 }
@@ -389,7 +399,15 @@ async function updateById<T>(
     const room = await getRoomById(auctionId);
     const rev = room.rev;
     const value = await fn(room);
-    if (await persist(room, rev)) return stampRev(value, room.rev);
+    if (await persist(room, rev)) {
+      publishRoomEvent({
+        type: "auction",
+        auctionId,
+        rev: room.rev,
+        snapshot: snapshot(room),
+      });
+      return stampRev(value, room.rev);
+    }
   }
   throw new Error("Could not update the auction. Try again.");
 }
@@ -402,7 +420,15 @@ async function updateByCode<T>(
     const room = await getRoomByCode(code);
     const rev = room.rev;
     const value = await fn(room);
-    if (await persist(room, rev)) return stampRev(value, room.rev);
+    if (await persist(room, rev)) {
+      publishRoomEvent({
+        type: "auction",
+        auctionId: room.auction.id,
+        rev: room.rev,
+        snapshot: snapshot(room),
+      });
+      return stampRev(value, room.rev);
+    }
   }
   throw new Error("Could not update the auction. Try again.");
 }
@@ -479,12 +505,25 @@ function liveWithClock(room: RoomRecord): LiveSyncState {
 function cancelIfHostOffline(room: RoomRecord): boolean {
   if (!["lobby", "live", "paused"].includes(room.auction.status)) return false;
   const hostLastSeen = room.lastSeen[room.auction.hostId] ?? 0;
-  if (Date.now() - hostLastSeen <= HOST_HEARTBEAT_EXPIRATION_MS) return false;
+  const now = Date.now();
+  if (now - hostLastSeen <= HOST_HEARTBEAT_EXPIRATION_MS) {
+    if (room.hostOfflineSince !== undefined) {
+      delete room.hostOfflineSince;
+      return true;
+    }
+    return false;
+  }
+  if (room.hostOfflineSince === undefined) {
+    room.hostOfflineSince = now;
+    return true;
+  }
+  if (now - room.hostOfflineSince <= HOST_HEARTBEAT_EXPIRATION_MS) return false;
 
   room.auction = {
     ...room.auction,
     status: "cancelled",
     completedAt: new Date().toISOString(),
+    cancellationReason: "heartbeat_timeout",
   };
   room.live = { ...room.live, isPaused: true, overlay: { type: "none" } };
   room.messages.push({
@@ -515,6 +554,7 @@ function snapshot(
   }
   return {
     rev: room.rev,
+    serverNow: Date.now(),
     auction: room.auction,
     teams: room.teams,
     participants: withPresence(room),
@@ -523,6 +563,8 @@ function snapshot(
     history: room.history ?? [],
     live: liveWithClock(room),
     signals,
+    chatRev: room.chatRev,
+    signalRev: room.signalRev,
   };
 }
 
@@ -568,8 +610,7 @@ export const roomStore = {
                 cond: { $ne: ["$$s.to", userId] },
               },
             },
-            rev: { $add: [{ $ifNull: ["$rev", 0] }, 1] },
-            updatedAt: new Date().toISOString(),
+            signalRev: { $add: [{ $ifNull: ["$signalRev", 0] }, 1] },
           },
         },
       ],
@@ -598,6 +639,7 @@ export const roomStore = {
       const rev = room.rev;
       if (forUserId === room.auction.hostId) {
         room.lastSeen[forUserId] = Date.now();
+        delete room.hostOfflineSince;
       }
       const progressed = progressLive(room);
       const cancelled = cancelIfHostOffline(room);
@@ -624,6 +666,7 @@ export const roomStore = {
       const rev = room.rev;
       if (forUserId === room.auction.hostId) {
         room.lastSeen[forUserId] = Date.now();
+        delete room.hostOfflineSince;
       }
       const progressed = progressLive(room);
       const cancelled = cancelIfHostOffline(room);
@@ -710,7 +753,10 @@ export const roomStore = {
       history: [],
       live: defaultLive(auction),
       signals: [],
+      chatRev: 0,
+      signalRev: 0,
       lastSeen: { [hostId]: Date.now() },
+      processedCommands: {},
       rev: 0,
     };
 
@@ -815,6 +861,7 @@ export const roomStore = {
           ...room.auction,
           status: "cancelled",
           completedAt: new Date().toISOString(),
+          cancellationReason: "host_left",
         };
         room.live = {
           ...room.live,
@@ -860,11 +907,15 @@ export const roomStore = {
         throw new Error("Only the host can start the auction");
       }
       room.lastSeen[userId] = Date.now();
+      delete room.hostOfflineSince;
       if (room.auction.status === "cancelled") {
         throw new Error("This auction was cancelled");
       }
       if (room.auction.status === "completed") {
         throw new Error("This auction has ended");
+      }
+      if (room.auction.status === "live" || room.auction.status === "paused") {
+        return snapshot(room, userId);
       }
       room.auction = {
         ...room.auction,
@@ -895,20 +946,34 @@ export const roomStore = {
     senderName: string;
     type?: ChatMessage["type"];
   }): Promise<ChatMessage> {
-    return updateById(input.auctionId, (room) => {
-      const message: ChatMessage = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        auctionId: input.auctionId,
-        type: input.type ?? "normal",
-        senderId: input.senderId,
-        senderName: input.senderName,
-        content: input.content.trim(),
-        timestamp: Date.now(),
-      };
-      if (!message.content) throw new Error("Message cannot be empty");
-      room.messages.push(message);
-      return message;
+    const message: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      auctionId: input.auctionId,
+      type: input.type ?? "normal",
+      senderId: input.senderId,
+      senderName: input.senderName,
+      content: input.content.trim(),
+      timestamp: Date.now(),
+    };
+    if (!message.content) throw new Error("Message cannot be empty");
+
+    const result = await (await roomsCol()).findOneAndUpdate(
+      { _id: input.auctionId },
+      {
+        $push: { messages: message },
+        $inc: { chatRev: 1 },
+        $set: { updatedAt: new Date().toISOString() },
+      },
+      { returnDocument: "after" }
+    );
+    if (!result) throw new Error("Auction not found");
+    publishRoomEvent({
+      type: "chat",
+      auctionId: input.auctionId,
+      chatRev: result.chatRev,
+      message,
     });
+    return message;
   },
 
   async presence(input: {
@@ -921,6 +986,7 @@ export const roomStore = {
     return updateById(input.auctionId, (room) => {
       progressLive(room);
       room.lastSeen[input.userId] = Date.now();
+      if (input.userId === room.auction.hostId) delete room.hostOfflineSince;
       room.participants = room.participants.map((p) =>
         p.userId === input.userId
           ? {
@@ -940,16 +1006,24 @@ export const roomStore = {
     signal: Omit<RtcSignal, "id"> | Omit<RtcSignal, "id">[]
   ): Promise<void> {
     const incoming = Array.isArray(signal) ? signal : [signal];
-    await updateById(auctionId, (room) => {
-      for (const item of incoming) {
-        room.signals.push({
-          ...item,
-          id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
-      }
-      if (room.signals.length > 500) {
-        room.signals = room.signals.slice(-250);
-      }
+    const queued = incoming.map((item) => ({
+      ...item,
+      id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }));
+    const result = await (await roomsCol()).findOneAndUpdate(
+      { _id: auctionId },
+      {
+        $push: { signals: { $each: queued, $slice: -500 } },
+        $inc: { signalRev: 1 },
+        $set: { updatedAt: new Date().toISOString() },
+      },
+      { returnDocument: "after" }
+    );
+    if (!result) throw new Error("Auction not found");
+    publishRoomEvent({
+      type: "signal",
+      auctionId,
+      signalRev: result.signalRev,
     });
   },
 
@@ -960,8 +1034,16 @@ export const roomStore = {
     teamName: string;
     amount: number;
     userId?: string;
+    commandId?: string;
   }): Promise<{ bid: Bid; snapshot: RoomSnapshot }> {
     return updateById(input.auctionId, (room) => {
+      const previous = input.commandId
+        ? room.processedCommands?.[input.commandId]
+        : undefined;
+      if (previous?.action === "bid" && previous.bidId) {
+        const bid = room.bids.find((item) => item.id === previous.bidId);
+        if (bid) return { bid, snapshot: snapshot(room) };
+      }
       progressLive(room);
       if (room.auction.status !== "live") throw new Error("Auction is not live");
       if (room.live.isPaused) throw new Error("Auction is paused");
@@ -1003,16 +1085,29 @@ export const roomStore = {
         userId: input.userId,
       };
       room.bids = [bid, ...room.bids];
+      if (input.commandId) {
+        room.processedCommands ??= {};
+        room.processedCommands[input.commandId] = {
+          action: "bid",
+          bidId: bid.id,
+        };
+        const commandIds = Object.keys(room.processedCommands);
+        if (commandIds.length > 500) {
+          delete room.processedCommands[commandIds[0]];
+        }
+      }
       const clock = liveWithClock(room);
       room.live.currentBid = amount;
       room.live.highestBidder = {
         teamId: input.teamId,
         teamName: team.name || input.teamName,
       };
-      room.live.timeRemaining = room.auction.rules.enableTimerReset
-        ? room.auction.rules.biddingTimer
-        : Math.max(5, clock.timeRemaining);
-      room.live.timerEpoch = Date.now();
+      if (room.auction.rules.enableTimerReset) {
+        room.live.timeRemaining = room.auction.rules.biddingTimer;
+        room.live.timerEpoch = Date.now();
+      } else {
+        room.live.timeRemaining = clock.timeRemaining;
+      }
       room.live.overlay = { type: "none" };
       room.participants = room.participants.map((p) =>
         p.teamId === input.teamId
@@ -1025,20 +1120,29 @@ export const roomStore = {
 
   async pushLive(
     auctionId: string,
-    live: Partial<LiveSyncState>
+    live: Partial<LiveSyncState>,
+    userId: string
   ): Promise<RoomSnapshot> {
     return updateById(auctionId, (room) => {
+      if (room.auction.hostId !== userId) {
+        throw new Error("Only the host can publish live state");
+      }
       progressLive(room);
       // Lot state (player, bids, sold list, overlay) is server-owned so a
       // host timer publish cannot rewind a friend's winning bid.
       if (typeof live.isPaused === "boolean") {
+        const wasPaused = room.live.isPaused;
         room.live = {
           ...room.live,
           isPaused: live.isPaused,
-          timerEpoch: Date.now(),
-          timeRemaining: live.isPaused
-            ? liveWithClock(room).timeRemaining
-            : room.live.timeRemaining,
+          ...(live.isPaused && !wasPaused
+            ? {
+                timerEpoch: Date.now(),
+                timeRemaining: liveWithClock(room).timeRemaining,
+              }
+            : !live.isPaused && wasPaused
+              ? { timerEpoch: Date.now() }
+              : {}),
         };
       }
       return snapshot(room);
@@ -1047,9 +1151,13 @@ export const roomStore = {
 
   async settleLot(
     auctionId: string,
-    mode: "auto" | "sold" | "unsold" = "auto"
+    mode: "auto" | "sold" | "unsold" = "auto",
+    userId: string
   ): Promise<RoomSnapshot> {
     return updateById(auctionId, (room) => {
+      if (room.auction.hostId !== userId) {
+        throw new Error("Only the host can settle a player");
+      }
       if (room.auction.status !== "live") {
         throw new Error("Auction is not live");
       }
@@ -1061,8 +1169,11 @@ export const roomStore = {
     });
   },
 
-  async forceAdvance(auctionId: string): Promise<RoomSnapshot> {
+  async forceAdvance(auctionId: string, userId: string): Promise<RoomSnapshot> {
     return updateById(auctionId, (room) => {
+      if (room.auction.hostId !== userId) {
+        throw new Error("Only the host can advance the auction");
+      }
       if (room.auction.status !== "live") {
         throw new Error("Auction is not live");
       }
@@ -1083,9 +1194,14 @@ export const roomStore = {
 
   async updateAuctionStatus(
     auctionId: string,
-    status: Auction["status"]
+    status: Auction["status"],
+    userId: string,
+    cancellationReason?: CancellationReason
   ): Promise<RoomSnapshot> {
     return updateById(auctionId, (room) => {
+      if (room.auction.hostId !== userId) {
+        throw new Error("Only the host can change auction status");
+      }
       if (status === "paused") {
         const remaining = liveWithClock(room).timeRemaining;
         room.live = {
@@ -1107,6 +1223,8 @@ export const roomStore = {
         room.auction.completedAt = new Date().toISOString();
       }
       if (status === "cancelled") {
+        room.auction.cancellationReason =
+          cancellationReason ?? "host_cancelled";
         room.live = { ...room.live, isPaused: true, overlay: { type: "none" } };
       }
       return snapshot(room);

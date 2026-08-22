@@ -11,6 +11,11 @@ export type AuctionStatus =
 
 export type AuctionVisibility = "public" | "private";
 
+export type CancellationReason =
+  | "heartbeat_timeout"
+  | "host_left"
+  | "host_cancelled";
+
 export interface PlayerBucket {
   id: PlayerBucketId;
   name: string;
@@ -79,6 +84,7 @@ export interface Auction {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  cancellationReason?: CancellationReason;
   winnerTeamId?: string;
 }
 

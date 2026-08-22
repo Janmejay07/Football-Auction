@@ -9,6 +9,7 @@ export interface PlaceBidInput {
   teamName: string;
   amount: number;
   userId?: string;
+  commandId?: string;
 }
 
 export const bidService = {

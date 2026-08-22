@@ -95,30 +95,45 @@ export async function POST(
           teamName: String(body.teamName ?? ""),
           amount: Number(body.amount ?? 0),
           userId: body.userId ? String(body.userId) : undefined,
+          commandId: body.commandId ? String(body.commandId) : undefined,
         });
         return NextResponse.json({ success: true, bid, snapshot });
       }
       case "settle": {
         const mode =
           body.mode === "unsold" || body.mode === "sold" ? body.mode : "auto";
-        const room = await roomStore.settleLot(auctionId, mode);
+        const room = await roomStore.settleLot(
+          auctionId,
+          mode,
+          String(body.userId ?? "")
+        );
         return NextResponse.json(room);
       }
       case "advance": {
-        const room = await roomStore.forceAdvance(auctionId);
+        const room = await roomStore.forceAdvance(
+          auctionId,
+          String(body.userId ?? "")
+        );
         return NextResponse.json(room);
       }
       case "live": {
         const room = await roomStore.pushLive(
           auctionId,
-          (body.live ?? {}) as Partial<LiveSyncState>
+          (body.live ?? {}) as Partial<LiveSyncState>,
+          String(body.userId ?? "")
         );
         return NextResponse.json(room);
       }
       case "status": {
         const room = await roomStore.updateAuctionStatus(
           auctionId,
-          body.status as "live" | "paused" | "completed" | "cancelled"
+          body.status as "live" | "paused" | "completed" | "cancelled",
+          String(body.userId ?? ""),
+          body.cancellationReason === "heartbeat_timeout" ||
+            body.cancellationReason === "host_left" ||
+            body.cancellationReason === "host_cancelled"
+            ? body.cancellationReason
+            : undefined
         );
         return NextResponse.json(room);
       }

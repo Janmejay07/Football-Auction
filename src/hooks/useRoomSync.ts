@@ -9,6 +9,7 @@ import { useTeamStore } from "@/store/teamStore";
 import { auctionService } from "@/lib/services/auctionService";
 import type { RoomSnapshot } from "@/types/room";
 import type { RtcSignal } from "@/types/room";
+import type { RoomEvent } from "@/types/room";
 
 type SignalHandler = (signals: RtcSignal[]) => void;
 
@@ -71,6 +72,22 @@ export function useRoomSync(auctionId: string) {
     void poll();
     const id = window.setInterval(() => void poll(), 1000);
 
+    const events = new EventSource(`/api/rooms/${auctionId}/events`);
+    const onEvent = (event: Event) => {
+      try {
+        const roomEvent = JSON.parse((event as MessageEvent).data) as RoomEvent;
+        if (roomEvent.type === "auction") {
+          applySnapshot(roomEvent.snapshot, userId);
+        } else if (roomEvent.type === "chat") {
+          useChatStore.getState().addMessage(roomEvent.message);
+        }
+      } catch {
+        /* Polling remains the recovery path if an event is malformed. */
+      }
+    };
+    events.addEventListener("auction", onEvent);
+    events.addEventListener("chat", onEvent);
+
     const pullSignals = async () => {
       if (!userId) return;
       try {
@@ -94,6 +111,9 @@ export function useRoomSync(auctionId: string) {
       window.clearInterval(id);
       window.clearInterval(beatId);
       window.clearInterval(signalId);
+      events.removeEventListener("auction", onEvent);
+      events.removeEventListener("chat", onEvent);
+      events.close();
     };
   }, [auctionId, userId, pathname, router]);
 }

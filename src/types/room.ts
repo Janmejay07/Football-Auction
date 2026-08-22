@@ -30,6 +30,9 @@ export interface RtcSignal {
 
 export interface RoomSnapshot {
   rev: number;
+  serverNow: number;
+  chatRev: number;
+  signalRev: number;
   auction: Auction;
   teams: Team[];
   participants: Participant[];
@@ -39,3 +42,22 @@ export interface RoomSnapshot {
   live: LiveSyncState;
   signals: RtcSignal[];
 }
+
+export type RoomEvent =
+  | {
+      type: "auction";
+      auctionId: string;
+      rev: number;
+      snapshot: RoomSnapshot;
+    }
+  | {
+      type: "chat";
+      auctionId: string;
+      chatRev: number;
+      message: ChatMessage;
+    }
+  | {
+      type: "signal";
+      auctionId: string;
+      signalRev: number;
+    };

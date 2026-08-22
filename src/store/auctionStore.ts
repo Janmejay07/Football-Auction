@@ -8,6 +8,7 @@ import { REAL_PLAYERS } from "@/lib/loadRealPlayers";
 import { bidService } from "@/lib/services/bidService";
 import { auctionService } from "@/lib/services/auctionService";
 import { useTeamStore } from "@/store/teamStore";
+import { useAuthStore } from "@/store/authStore";
 import { playAuctionSound } from "@/hooks/useSound";
 import type { LiveSyncState, RoomSnapshot } from "@/types/room";
 
@@ -60,6 +61,8 @@ interface AuctionState {
   currentBid: number;
   highestBidder: { teamId: string; teamName: string } | null;
   timeRemaining: number;
+  timerEpoch: number;
+  timerDeadline: number;
   bidHistory: Bid[];
   history: AuctionHistoryItem[];
   overlay: OverlayState;
@@ -129,6 +132,8 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
   currentBid: REAL_PLAYERS[0]?.basePrice ?? 5,
   highestBidder: null,
   timeRemaining: 0,
+  timerEpoch: 0,
+  timerDeadline: 0,
   bidHistory: [],
   history: [],
   overlay: { type: "none" },
@@ -217,6 +222,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       currentBid: live.currentBid,
       highestBidder: live.highestBidder,
       timeRemaining: live.overlay.type === "none" ? live.timeRemaining : 0,
+      timerEpoch: live.timerEpoch,
+      timerDeadline:
+        live.overlay.type === "none"
+          ? Date.now() + live.timeRemaining * 1000
+          : 0,
       bidHistory: snap.bids.filter((b) => b.playerId === live.currentPlayerId),
       history: snap.history ?? [],
       soldPlayerIds: live.soldPlayerIds ?? [],
@@ -260,6 +270,7 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
         isPaused: s.isPaused,
         overlay,
       },
+      userId: useAuthStore.getState().user?.id,
     });
   },
 
@@ -287,8 +298,9 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const { auction } = get();
     set({ isPaused: true, auctionStatus: "paused", simulationActive: false });
     if (!auction.id.startsWith("auc-")) return;
+    const userId = useAuthStore.getState().user?.id;
     void auctionService
-      .postAction(auction.id, { action: "status", status: "paused" })
+      .postAction(auction.id, { action: "status", status: "paused", userId })
       .catch(() => undefined);
     if (byName) {
       void auctionService
@@ -306,8 +318,9 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const { auction } = get();
     set({ isPaused: false, auctionStatus: "live", simulationActive: true });
     if (!auction.id.startsWith("auc-")) return;
+    const userId = useAuthStore.getState().user?.id;
     void auctionService
-      .postAction(auction.id, { action: "status", status: "live" })
+      .postAction(auction.id, { action: "status", status: "live", userId })
       .catch(() => undefined);
     if (byName) {
       void auctionService
@@ -331,8 +344,14 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       auction: { ...auction, status: "cancelled" },
     });
     if (!auction.id.startsWith("auc-")) return;
+    const userId = useAuthStore.getState().user?.id;
     void auctionService
-      .postAction(auction.id, { action: "status", status: "cancelled" })
+      .postAction(auction.id, {
+        action: "status",
+        status: "cancelled",
+        userId,
+        cancellationReason: "host_cancelled",
+      })
       .catch(() => undefined);
     void auctionService
       .postAction(auction.id, {
@@ -349,8 +368,12 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const state = get();
     if (!state.simulationActive || state.isPaused || state.auctionStatus !== "live") return;
     if (state.overlay.type !== "none") return;
-    if (state.timeRemaining <= 0) return;
-    set({ timeRemaining: state.timeRemaining - 1 });
+    set({
+      timeRemaining: Math.max(
+        0,
+        Math.ceil((state.timerDeadline - Date.now()) / 1000)
+      ),
+    });
   },
 
   ensureProgress: async () => {
@@ -391,6 +414,7 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       teamName,
       amount: nextAmount,
       userId,
+      commandId: `bid-${userId ?? "anonymous"}-${state.currentPlayer.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     });
 
     if (!result.success || !result.bid) return false;
@@ -459,7 +483,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const state = get();
     if (!state.auction.id.startsWith("auc-")) return;
     void auctionService
-      .postAction(state.auction.id, { action: "settle", mode: "sold" })
+      .postAction(state.auction.id, {
+        action: "settle",
+        mode: "sold",
+        userId: useAuthStore.getState().user?.id,
+      })
       .then((snap) => get().applySnapshot(snap))
       .catch(() => undefined);
   },
@@ -468,7 +496,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const state = get();
     if (!state.auction.id.startsWith("auc-")) return;
     void auctionService
-      .postAction(state.auction.id, { action: "settle", mode: "unsold" })
+      .postAction(state.auction.id, {
+        action: "settle",
+        mode: "unsold",
+        userId: useAuthStore.getState().user?.id,
+      })
       .then((snap) => get().applySnapshot(snap))
       .catch(() => undefined);
   },
@@ -480,12 +512,14 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
       if (state.overlay.type !== "none") {
         const snap = await auctionService.postAction(state.auction.id, {
           action: "advance",
+          userId: useAuthStore.getState().user?.id,
         });
         get().applySnapshot(snap);
       } else {
         const snap = await auctionService.postAction(state.auction.id, {
           action: "settle",
           mode: "auto",
+          userId: useAuthStore.getState().user?.id,
         });
         get().applySnapshot(snap);
       }
@@ -501,7 +535,10 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
     const state = get();
     if (!state.auction.id.startsWith("auc-")) return;
     void auctionService
-      .postAction(state.auction.id, { action: "advance" })
+      .postAction(state.auction.id, {
+        action: "advance",
+        userId: useAuthStore.getState().user?.id,
+      })
       .then((snap) => get().applySnapshot(snap))
       .catch(() => undefined);
   },
