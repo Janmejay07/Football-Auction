@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -39,6 +39,7 @@ export default function AuctionLobbyPage() {
   const { chatDrawerOpen, setChatDrawerOpen } = useUiStore();
   const { origin: lanOrigin, reachableOffLan } = useLanOrigin();
   const inviteUrl = `${lanOrigin}/auction/join?code=${auction.roomCode}`;
+  const [starting, setStarting] = useState(false);
 
   const me = participants.find((p) => p.userId === user?.id);
   const isHost = Boolean(me?.isHost || user?.id === auction.hostId);
@@ -60,7 +61,8 @@ export default function AuctionLobbyPage() {
   };
 
   const onStart = async () => {
-    if (!user) return;
+    if (!user || starting) return;
+    setStarting(true);
     try {
       const room = await auctionService.startAuction(params.auctionId, user.id);
       useAuctionStore.getState().applySnapshot(room);
@@ -68,6 +70,7 @@ export default function AuctionLobbyPage() {
       router.push(`/auction/${params.auctionId}/live`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start");
+      setStarting(false);
     }
   };
 
@@ -148,8 +151,8 @@ export default function AuctionLobbyPage() {
             <Copy className="h-4 w-4" /> Copy Invite Link
           </Button>
           {isHost && (
-            <Button onClick={() => void onStart()} disabled={participants.length < 1}>
-              <Play className="h-4 w-4" /> Start Auction
+            <Button onClick={() => void onStart()} disabled={participants.length < 1 || starting}>
+              <Play className="h-4 w-4" /> {starting ? "Starting..." : "Start Auction"}
             </Button>
           )}
           <Button variant="outline" onClick={() => void onLeave()}>
@@ -232,8 +235,8 @@ export default function AuctionLobbyPage() {
           <MessageCircle className="h-4 w-4" />
         </Button>
         {isHost && (
-          <Button size="sm" className="ml-2" onClick={() => void onStart()}>
-            Start Auction
+          <Button size="sm" className="ml-2" onClick={() => void onStart()} disabled={starting}>
+            {starting ? "Starting..." : "Start Auction"}
           </Button>
         )}
         <Button variant="ghost" size="icon" title="Leave auction" onClick={() => void onLeave()}>

@@ -49,6 +49,11 @@ async function captureMedia(wantAudio: boolean, wantVideo: boolean) {
   }
 }
 
+type MediaRequestDetail = {
+  audio?: boolean;
+  video?: boolean;
+};
+
 export function useRoomMedia(auctionId: string) {
   const user = useAuthStore((s) => s.user);
   const participants = useAuctionStore((s) => s.participants);
@@ -233,6 +238,55 @@ export function useRoomMedia(auctionId: string) {
     if (!userId || !auctionId) return;
     let stopped = false;
 
+    const requestMedia = async (detail: MediaRequestDetail = {}) => {
+      const current = streamRef.current;
+      const needsAudio =
+        Boolean(detail.audio) &&
+        !current?.getAudioTracks().some((track) => track.readyState === "live");
+      const needsVideo =
+        Boolean(detail.video) &&
+        !current?.getVideoTracks().some((track) => track.readyState === "live");
+      if ((!needsAudio && !needsVideo) || stopped) return;
+
+      try {
+        const added = await captureMedia(needsAudio, needsVideo);
+        if (stopped) {
+          added.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const stream = current
+          ? new MediaStream([...current.getTracks(), ...added.getTracks()])
+          : added;
+        stream.getTracks().forEach((track) => {
+          const participant = useAuctionStore
+            .getState()
+            .participants.find((item) => item.userId === userIdRef.current);
+          track.enabled =
+            track.kind === "audio"
+              ? Boolean(participant?.isMicOn)
+              : Boolean(participant?.isCameraOn);
+        });
+        streamRef.current = stream;
+        setLocalStream(stream);
+        setRemoteStream(userId, stream);
+        for (const pc of peersRef.current.values()) attachLocalTracks(pc);
+        setMediaReady(true);
+      } catch {
+        if (!stopped) {
+          toast.error(
+            "Allow camera and microphone in your browser and use the public HTTPS link"
+          );
+        }
+      }
+    };
+
+    const onMediaRequest = (event: Event) => {
+      const detail = (event as CustomEvent<MediaRequestDetail>).detail;
+      void requestMedia(detail);
+    };
+    window.addEventListener("auction:request-media", onMediaRequest);
+
     const processSignals = async (signals: RtcSignal[]) => {
       const meId = userIdRef.current;
       const roomId = auctionIdRef.current;
@@ -367,6 +421,7 @@ export function useRoomMedia(auctionId: string) {
 
     return () => {
       stopped = true;
+      window.removeEventListener("auction:request-media", onMediaRequest);
       unsub();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;

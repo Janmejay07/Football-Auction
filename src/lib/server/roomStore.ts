@@ -596,6 +596,9 @@ export const roomStore = {
     for (let attempt = 0; attempt < 16; attempt++) {
       const room = await getRoomById(auctionId);
       const rev = room.rev;
+      if (forUserId === room.auction.hostId) {
+        room.lastSeen[forUserId] = Date.now();
+      }
       const progressed = progressLive(room);
       const cancelled = cancelIfHostOffline(room);
       const before = room.signals.length;
@@ -603,6 +606,7 @@ export const roomStore = {
       const dirty =
         progressed ||
         cancelled ||
+        forUserId === room.auction.hostId ||
         Boolean(drainSignals && forUserId && room.signals.length !== before);
       if (!dirty) return snap;
       if (await persist(room, rev)) return stampRev(snap, room.rev);
@@ -618,6 +622,9 @@ export const roomStore = {
     for (let attempt = 0; attempt < 16; attempt++) {
       const room = await getRoomByCode(code);
       const rev = room.rev;
+      if (forUserId === room.auction.hostId) {
+        room.lastSeen[forUserId] = Date.now();
+      }
       const progressed = progressLive(room);
       const cancelled = cancelIfHostOffline(room);
       const before = room.signals.length;
@@ -625,6 +632,7 @@ export const roomStore = {
       const dirty =
         progressed ||
         cancelled ||
+        forUserId === room.auction.hostId ||
         Boolean(drainSignals && forUserId && room.signals.length !== before);
       if (!dirty) return snap;
       if (await persist(room, rev)) return stampRev(snap, room.rev);
@@ -851,6 +859,7 @@ export const roomStore = {
       if (room.auction.hostId !== userId) {
         throw new Error("Only the host can start the auction");
       }
+      room.lastSeen[userId] = Date.now();
       if (room.auction.status === "cancelled") {
         throw new Error("This auction was cancelled");
       }

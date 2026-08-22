@@ -511,6 +511,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
   },
 
   toggleMic: (participantId) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("auction:request-media", { detail: { audio: true } })
+      );
+    }
     set((s) => ({
       participants: s.participants.map((p) =>
         p.id === participantId ? { ...p, isMicOn: !p.isMicOn, isSpeaking: false } : p
@@ -528,6 +533,11 @@ export const useAuctionStore = create<AuctionState>((set, get) => ({
   },
 
   toggleCamera: (participantId) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("auction:request-media", { detail: { video: true } })
+      );
+    }
     set((s) => ({
       participants: s.participants.map((p) =>
         p.id === participantId ? { ...p, isCameraOn: !p.isCameraOn } : p
